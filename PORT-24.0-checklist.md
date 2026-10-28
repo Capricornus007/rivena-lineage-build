@@ -11,7 +11,10 @@
 1. **libion legacy**（77fac2d4b oneplus / 9ae6e7511 xiaomi）
    - `BoardConfigCommon.mk` 加 `include device/lineage/sepolicy/libion/sepolicy.mk`
    - `common.mk` 加 `$(call soong_config_set_bool,libion,legacy_impl,true)`
-   - **local_manifests 要另外掛 `LineageOS/android_device_lineage_sepolicy`（實測 24.0 有 `libion/`）**
+   - **`device/lineage/sepolicy` 不要另外掛**：24.0 的 `snippets/lineage.xml` 已自帶
+     `LineageOS/android_device_lineage_sepolicy`（含 `libion/`）；local_manifests 再掛一次會
+     讓 `repo manifest` 直接報 `duplicate path device/lineage/sepolicy`。
+     2026-10-28 已從 `Capricornus007/local_manifests:lineage-24.0` 移除（`24da3b1`）。
    - rivena：`android_device_oppo_sm8250-common` 的 `BoardConfigCommon.mk` / `common.mk`
 2. **recovery rc 拆成獨立 prebuilt_etc**（6cb0723b5）
    - `init/Android.bp` 把 `recovery_available: true` 改成 `prebuilt_etc { name: "init.oplus.hw.recovery.rc", src: "init.oplus.hw.rc", recovery: true }`，PRODUCT_PACKAGES 跟著改名
