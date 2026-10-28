@@ -16,6 +16,15 @@ rm -rf .repo/local_manifests
 git clone --depth 1 -b lineage-24.0 \
   https://github.com/Capricornus007/local_manifests .repo/local_manifests
 
+# 先合併 manifest 再同步：重複 path（例如 24.0 snippets 已自帶的
+# device/lineage/sepolicy）會在 resync 前就炸，這一步讓失敗訊息一眼可讀。
+echo "==== PROBE: manifest merge check ===="
+repo manifest -o /tmp/probe-manifest.xml
+echo "==== PROBE: manifest OK ===="
+
+df -h . || true
+free -h || true
+
 # crave 自己的同步入口（自己跑 `repo sync` 是會被Ban的動作）
 /opt/crave/resync.sh
 
