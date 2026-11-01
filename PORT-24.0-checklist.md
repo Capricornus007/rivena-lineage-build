@@ -58,3 +58,26 @@ touch AIDL 凍結 `.hash`＋新增 `IOplusTouchEventCallback`/`OplusTouchStatus`
 回傳型別（a46ef8ef6）與 V2 方法（96a1e3795）、新增 `vendor.oplus.hardware.oplusSensor` V1（888d557fe）、
 VINTF 抬版（6e6f3dd8d / 35a907fbe / 1a56aa443）、soong select HTPR（709b52552）、
 新增 `extract-utils-ext`（359f121b1）、**`folio-daemon: RIP`（e6995709c）**、sensors 搬子目錄（acee837e9）。
+
+## 2026-11-01 local_manifests 復核（每條 revision 都對真實遠端跑過 ls-remote）
+
+manifest 目前八個專案，全部「remote 有定義、path 不重複、revision 真的存在」——
+上次炸 sync 的那種指針問題這次沒有。變動只有一處：
+
+| 專案 | 原 revision | 現 revision | 實測 |
+| --- | --- | --- | --- |
+| `vendor/realme/rivena` | lineage-23.2 | **lineage-24.0** | RMX3366 gitlab 已開出 24.0（`edb5f135`） |
+| `vendor/oppo/sm8250-common` | lineage-23.2 | **lineage-24.0** | 同上（`3c0ddbbd`） |
+| `vendor/oplus/camera` | lineage-23.1 | lineage-23.1（不動） | ermyltsor 只有 `15.0`／`fifteen`／`lineage-23.0`／`lineage-23.1`／`yaap/sixteen`，**沒有 24.0**，硬抬就會讓 `repo sync` 炸在「revision 不存在」 |
+| `hardware/dolby` | 16 | 16（不動） | RMX3366 github 只有 `16`／`lineage-23.2`／`lunairs/lineage-23.1`；`16` 已是最新那條 |
+| device／kernel／`hardware/oplus` | lineage-24.0 | 不變 | 四條都在（capri 三倉 + `LineageOS/android_hardware_oplus`） |
+
+兩個「要盯」的連鎖影響，probe 建置時會先撞上：
+
+1. vendor blob 抬到 24.0 之後，上面「A14 blob 不能照抄」那一節的前提需要重新確認——
+   分支名變成 24.0 不代表抽出來的仍是 `RMX3366_14.0.0.2100(CN01)` 那批 A14 blob。
+   看 `extract-files.py` 的 sha 清單有沒有變就知道，別靠分支名推。
+2. `vendor/oplus/camera` 留在 23.1，而 framework 是 24.0：如果 camera 那塊的
+   AIDL/.hash 依賴 23.x 的 manifest 版本，VINTF 檢查可能會紅。真要抬得等
+   ermyltsor 開出 24.0，或自己 fork 一條出來（候選是 `yaap/sixteen`，名稱指向 A16，
+   但沒實測過，別直接改上去）。
