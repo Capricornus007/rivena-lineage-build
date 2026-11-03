@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       manifest_branch:
-        description: LineageOS manifest 分支
+        description: LineageOS 最新分支
         type: string
         default: lineage-24.0
 concurrency:
@@ -27,7 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 340
     env:
-      MANIFEST_URL: https://github.com/LineageOS/manifest.git
+      MANIFEST_URL: https://github.com/LineageOS/android.git
       MANIFEST_XML: lineage.xml
       REPO_DIR: ${{ github.workspace }}/los
     steps:
