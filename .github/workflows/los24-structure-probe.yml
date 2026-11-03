@@ -49,8 +49,9 @@ jobs:
           set -euo pipefail
           mkdir -p "$REPO_DIR/.repo"
           cd "$REPO_DIR"
+          # -m 才是 manifest 檔名（-x 不存在，repo 會直接 "no such option" 紅）。
           repo init -u "$MANIFEST_URL" -b "${{ inputs.manifest_branch || 'lineage-24.0' }}" \
-            -x "$MANIFEST_XML" --depth=1 --partial-clone --clone-filter=blob:limit=10M
+            -m "$MANIFEST_XML" --depth=1 --partial-clone --clone-filter=blob:limit=10M
           repo config manifest.groups "-platform,-default,-b2g" || true
 
       - name: repo sync
