@@ -47,6 +47,14 @@ jobs:
       - name: 拉 manifest（shallow + partial clone）
         run: |
           set -euo pipefail
+          # actions/checkout 會在 global gitconfig 寫 url.ssh://git@github.com/.insteadOf
+          # = https://github.com/，repo 的 https URL 會被改写成 ssh:// 去要金鑰，
+          # 非互動環境直接 "git requires authentication" 紅（run 41684810271 實測）。
+          # 先把所有 insteadOf 覆寫清掉，讓 repo 用回 https 匿名抓取。
+          for k in $(git config --global --get-regexp '^url\..*\.insteadOf$' | awk '{print $1}'); do
+            git config --global --unset-all "$k"
+          done
+          git config --global --get-regexp '^url\..*\.insteadOf$' || echo "insteadOf 已全部清掉"
           mkdir -p "$REPO_DIR/.repo"
           cd "$REPO_DIR"
           # -m 才是 manifest 檔名（-x 不存在，repo 會直接 "no such option" 紅）。
