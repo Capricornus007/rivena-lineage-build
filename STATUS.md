@@ -1,7 +1,9 @@
 # rivena (RMX3366) · LineageOS 24.0 构建 —— 状态：暂时搁置
 
-> 更新：2026-11-01
+> 更新：2026-11-04
 > 状态：**暂停 / BLOCKED —— 资源不可达，非技术问题。**
+> 2026-11-04 用 GitHub Actions 的结构探测 workflow 把「免费云机这条路能不能走」量成了**实测结论**
+> （见第六节），不再是引用群友说法。
 
 ## 一、为什么停
 
@@ -12,6 +14,7 @@
 
 2. **没有免费替代**
    - GitHub Actions：标准 runner 仅 70–80GB 存储，装不下 Android 16 源码（群友原话：`github action will no work cuz they have like 80GB storage`）。
+     **2026-11-04 已由本倉 workflow 實測證實，見第六節。**
    - Oracle Always Free（4 ARM / 24G / 200G）：账号注册不了。
    - ServerHive：最便宜的付费替代，约 **$1.5/次构建** 或 **$3/3 天**（medium 编 A16 约 40 分钟）；**无预算**。
 
@@ -42,3 +45,29 @@
 ## 五、可先做的（不耗资源）
 
 移植本身是**读代码 / diff / 改 device 树**的活，不占磁盘与算力，现在就能推进——按 `PORT-24.0-checklist.md` 逐项改，等有机器时一次性验证。
+
+## 六、2026-11-04 GitHub Actions 结构探測實測結果（結論：磁碟不夠，路死）
+
+workflow：`.github/workflows/los24-structure-probe.yml`（只手動觸發）。run `41690289419`。
+
+先把座標查清楚（前三次紅都是我自己編倉名，沒去查倉在不在）：
+
+- 平台 manifest 倉＝**`LineageOS/android`**，根目錄只有 `README.mkdn` / `default.xml` / `snippets/`，
+  官方指令是 `repo init -u https://github.com/LineageOS/android.git -b lineage-24.0 --git-lfs`。
+- `LineageOS/manifest` 這倉**不存在**（`gh api` 回 404）。GitHub 對匿名 HTTPS 拉不存在的倉回的是
+  「git requires authentication」而不是 404，所以那三次紅的錯誤訊息一直在把人往 git 設定上帶。
+  `snippets/lineage.xml` 只是 `<include>` 用的片段，不是 top-level manifest，拿它當 `-m` 一定找不到。
+- rivena **不是 LineageOS 官方支援裝置**（`LineageOS/android_device_realme_rivena` 也 404），
+  `default.xml`（1067 個 project）與 `snippets/lineage.xml` 都不含 `device/realme/rivena`；
+  裝置 tree 全部來自 **`Capricornus007/local_manifests` 的 `lineage-24.0` 分支**（8 塊）。
+  workflow 因此多了「掛 local_manifests」這步，並在 sync 前用 `repo manifest -o` 驗 8 塊齊不齊。
+
+實測走到哪：裝 repo/git-lfs ✓ → 清掉 runner 預裝的 dotnet / Android SDK / hostedtoolcache ✓ →
+`repo init`（`--depth=1 --partial-clone --clone-filter=blob:limit=10M --git-lfs`）✓ →
+local_manifests 合併檢查 ✓（8 塊全在）→ **`repo sync` 中途把磁碟寫爆**，job 註解是
+`System.IO.IOException: No space left on device`，連 runner 自己的 `_diag/Worker_*.log` 都寫不進去。
+
+結論：**就算 shallow + partial clone + 清掉影像裡約 25GB，免費 runner 的 ~84GB 根分區仍然裝不下
+LOS 24.0 源码**。這不是調參數能救的——`m nothing` 需要整個平台樹，不能只同步一半。
+所以第一節第 2 點那條「GitHub Actions 不行」從群友說法升級成實測數據；剩下的路只有第三節那兩條
+（本機騰 ≥250GB，或花錢）。
