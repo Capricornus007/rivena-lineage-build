@@ -1,0 +1,106 @@
+name: LOS 24.0 結構探測（rivena）
+
+# 只做三件事：拉 manifest（shallow＋partial clone）→ repo sync → lunch lineage_rivena-userdebug
+# → m nothing（只建出構建圖，不出 ROM）。目的：量出「免費 runner 上這條路能不能站住」，
+# 不是出包。完整 ROM 在免費前提下無解（Actions 每 job 6 小時、跑完清乾淨 119G、
+# cache 每鍵 10G；本機磁碟也不夠），crave 已關站、付費已由使用者排除。
+
+on:
+  workflow_dispatch:
+    inputs:
+      manifest_branch:
+        description: LineageOS manifest 分支
+        type: choice
+        default: lineage-24.0
+        options:
+          - lineage-24.0
+          - lineage-23.2
+  schedule:
+    # 每週五 14:00 UTC 跑一次探測（避開使用者環境凌晨 1–5 點的斷網窗）。
+    - cron: "0 14 * * 5"
+
+concurrency:
+  group: los24-probe
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: repo sync + lunch + m nothing
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    env:
+      MANIFEST_URL: https://github.com/LineageOS/manifest.git
+      MANIFEST_XML: lineage.xml
+      REPO_DIR: ${{ github.workspace }}/los
+    steps:
+      - name: 裝 repo 與依賴
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends git ccache rsync python3
+          mkdir -p "$HOME/bin"
+          curl -fsSL https://storage.googleapis.com/git-repo-downloads/repo -o "$HOME/bin/repo"
+          chmod +x "$HOME/bin/repo"
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+
+      - name: 盤點起手可用空間
+        run: df -h / "$RUNNER_TEMP" 2>/dev/null || df -h /
+
+      - name: 拉 manifest（shallow + partial clone）
+        run: |
+          set -euo pipefail
+          mkdir -p "$REPO_DIR/.repo"
+          cd "$REPO_DIR"
+          repo init -u "$MANIFEST_URL" -b "${{ inputs.manifest_branch || 'lineage-24.0' }}" \
+            -x "$MANIFEST_XML" --depth=1 --partial-clone --clone-filter=blob:limit=10M
+          repo config manifest.groups "-platform,-default,-b2g" || true
+
+      - name: repo sync
+        run: |
+          set -euo pipefail
+          cd "$REPO_DIR"
+          repo sync -c --no-tags --no-clone-bundle --optimized-fetch -j"$(nproc)" --fail-fast
+
+      - name: 量體積與缺頁
+        run: |
+          set -euo pipefail
+          cd "$REPO_DIR"
+          du -sh . | sed 's/^/工作區體積：/'
+          df -h / | tail -1 | sed 's/^/剩餘磁碟：/'
+          repo manifest | grep -c "<project" | sed 's/^/專案數：/'
+
+      - name: lunch lineage_rivena-userdebug
+        id: lunch
+        run: |
+          set -euo pipefail
+          cd "$REPO_DIR"
+          # 探測階段先確認 device tree 與 vendor 塊在不在，缺了就直接把原因寫進 summary。
+          test -d device/realme/rivena || { echo "::error::device/realme/rivena 不存在，manifest 沒帶進這支裝置"; exit 1; }
+          set +u
+          source build/envsetup.sh
+          lunch lineage_rivena-userdebug
+          set -u
+          {
+            echo "TARGET_PRODUCT=$TARGET_PRODUCT"
+            echo "TARGET_DEVICE=$TARGET_DEVICE"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: m nothing（只建構建圖，不出 ROM）
+        run: |
+          set -euo pipefail
+          cd "$REPO_DIR"
+          set +u; source build/envsetup.sh; lunch lineage_rivena-userdebug; set -u
+          m nothing
+
+      - name: 結果摘要
+        if: always()
+        run: |
+          {
+            echo "## LOS 24.0 結構探測"
+            echo "- 分支：${{ inputs.manifest_branch || 'lineage-24.0' }}"
+            echo "- 结论：sync/lunch/m nothing 三步的成敗見上方 job 列表"
+            echo "- 這支 workflow 不出 ROM，只量可行邊界"
+          } >> "$GITHUB_STEP_SUMMARY"
