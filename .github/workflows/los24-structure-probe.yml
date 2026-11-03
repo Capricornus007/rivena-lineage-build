@@ -2,8 +2,10 @@ name: LOS 24.0 結構探測（rivena）
 
 # 只做三件事：拉 manifest（shallow＋partial clone）→ repo sync → lunch lineage_rivena-userdebug
 # → m nothing（只建出構建圖，不出 ROM）。目的：量出「免費 runner 上這條路能不能站住」，
-# 不是出包。完整 ROM 在免費前提下無解（Actions 每 job 6 小時、跑完清乾淨 119G、
-# cache 每鍵 10G；本機磁碟也不夠），crave 已關站、付費已由使用者排除。
+# 不是出包。只在手動觸發時跑（不排程：這台機器在牆外，GitHub 與 LineageOS 都直連得到，
+# 沒有「趁網路能通時搶跑」的需求，排程只是白燒機時）。
+# 完整 ROM 在免費前提下無解（Actions 每 job 6 小時、跑完清乾淨 119G、cache 每鍵 10G；
+# 本機磁碟也不夠），crave 已關站、付費已由使用者排除。
 
 on:
   workflow_dispatch:
@@ -12,10 +14,6 @@ on:
         description: LineageOS manifest 分支
         type: string
         default: lineage-24.0
-  schedule:
-    # 每週五 14:00 UTC 跑一次探測（避開使用者環境凌晨 1–5 點的斷網窗）。
-    - cron: "0 14 * * 5"
-
 concurrency:
   group: los24-probe
   cancel-in-progress: true
