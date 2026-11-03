@@ -1,11 +1,21 @@
 name: LOS 24.0 結構探測（rivena）
 
-# 只做三件事：拉 manifest（shallow＋partial clone）→ repo sync → lunch lineage_rivena-userdebug
-# → m nothing（只建出構建圖，不出 ROM）。目的：量出「免費 runner 上這條路能不能站住」，
-# 不是出包。只在手動觸發時跑（不排程：這台機器在牆外，GitHub 與 LineageOS 都直連得到，
+# 只做四件事：repo init（LineageOS 平台 manifest）→ 掛 rivena 的 local_manifests
+# → repo sync（shallow + partial clone）→ lunch lineage_rivena-userdebug → m nothing
+# （只建出構建圖，不出 ROM）。目的：量出「免費 runner 上這條路能不能站住」，不是出包。
+# 只在手動觸發時跑（不排程：這台機器在牆外，GitHub 與 LineageOS 都直連得到，
 # 沒有「趁網路能通時搶跑」的需求，排程只是白燒機時）。
 # 完整 ROM 在免費前提下無解（Actions 每 job 6 小時、跑完清乾淨 119G、cache 每鍵 10G；
 # 本機磁碟也不夠），crave 已關站、付費已由使用者排除。
+#
+# 座標依據（2026-11-04 實查，不是推測）：
+#   · 平台 manifest 倉＝LineageOS/android，根目錄只有 default.xml 一個 manifest；
+#     README.mkdn 的官方指令是 `repo init -u .../android.git -b lineage-24.0 --git-lfs`。
+#     先前用的 LineageOS/manifest + lineage.xml 根本不存在（gh api 回 404）。GitHub 對
+#     匿名 HTTPS 拉不存在的倉回的是「requires authentication」而不是 404，所以那三次紅
+#     從來不是 git 設定問題，是倉名我憑空編的。
+#   · rivena 不是 LineageOS 官方支援裝置（LineageOS/android_device_realme_rivena 也 404），
+#     裝置 tree 全部來自 Capricornus007/local_manifests 的 lineage-24.0 分支。
 
 on:
   workflow_dispatch:
@@ -28,23 +38,34 @@ jobs:
     timeout-minutes: 340
     env:
       MANIFEST_URL: https://github.com/LineageOS/android.git
-      MANIFEST_XML: lineage.xml
+      LOCAL_MANIFESTS_REPO: https://github.com/Capricornus007/local_manifests.git
+      MANIFEST_BRANCH: ${{ inputs.manifest_branch || 'lineage-24.0' }}
       REPO_DIR: ${{ github.workspace }}/los
     steps:
-      - name: 裝 repo 與依賴
+      - name: 裝 repo / git-lfs 與依賴
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends git ccache rsync python3
+          sudo apt-get install -y --no-install-recommends git git-lfs ccache rsync python3
+          git lfs install --system || true
           mkdir -p "$HOME/bin"
           curl -fsSL https://storage.googleapis.com/git-repo-downloads/repo -o "$HOME/bin/repo"
           chmod +x "$HOME/bin/repo"
           echo "$HOME/bin" >> "$GITHUB_PATH"
 
-      - name: 盤點起手可用空間
-        run: df -h / "$RUNNER_TEMP" 2>/dev/null || df -h /
+      - name: 清掉 runner 預裝的大塊，騰出同步空間
+        run: |
+          set -euo pipefail
+          # ubuntu-latest 影像預裝的 Android SDK / .NET / Swift / hostedtoolcache 對這支
+          # workflow 全無用；LOS 就算 shallow+partial 同步也要幾十 GB，先清再跑。
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/hostedtoolcache \
+                     /usr/local/share/powershell /usr/share/swift || true
+          sudo apt-get purge -y --auto-remove azure-cli google-cloud-cli \
+                     microsoft-edge-stable firefox mysql-server-core || true
+          sudo apt-get clean
+          df -h / | tail -1 | sed 's/^/清理後：/'
 
-      - name: 拉 manifest（shallow + partial clone）
+      - name: 拉平台 manifest（shallow + partial clone）
         run: |
           set -euo pipefail
           # actions/checkout 會在 global gitconfig 寫 url.ssh://git@github.com/.insteadOf
@@ -55,12 +76,29 @@ jobs:
             git config --global --unset-all "$k"
           done
           git config --global --get-regexp '^url\..*\.insteadOf$' || echo "insteadOf 已全部清掉"
-          mkdir -p "$REPO_DIR/.repo"
+          mkdir -p "$REPO_DIR"
           cd "$REPO_DIR"
-          # -m 才是 manifest 檔名（-x 不存在，repo 會直接 "no such option" 紅）。
-          repo init -u "$MANIFEST_URL" -b "${{ inputs.manifest_branch || 'lineage-24.0' }}" \
-            -m "$MANIFEST_XML" --depth=1 --partial-clone --clone-filter=blob:limit=10M --git-lfs
-          repo config manifest.groups "-platform,-default,-b2g" || true
+          # 不寫 -m：倉根目錄唯一的 manifest 就是 default.xml（實查），官方指令也沒有 -m。
+          repo init -u "$MANIFEST_URL" -b "$MANIFEST_BRANCH" \
+            --git-lfs --depth=1 --partial-clone --clone-filter=blob:limit=10M
+
+      - name: 掛 rivena 的 local_manifests
+        run: |
+          set -euo pipefail
+          cd "$REPO_DIR"
+          rm -rf .repo/local_manifests
+          git clone --depth 1 -b "$MANIFEST_BRANCH" \
+            "$LOCAL_MANIFESTS_REPO" .repo/local_manifests
+          # 合併後先驗一次：重複 path（例如 device/lineage/sepolicy 已由 24.0 的
+          # snippets/lineage.xml 自帶）會在這裡就報 duplicate，不用等 sync 跑到一半才炸。
+          repo manifest -o /tmp/merged-manifest.xml
+          echo "合併後專案數：$(grep -c '<project' /tmp/merged-manifest.xml)"
+          for p in device/realme/rivena device/oppo/sm8250-common kernel/oppo/sm8250 \
+                   hardware/oplus hardware/dolby vendor/realme/rivena \
+                   vendor/oppo/sm8250-common vendor/oplus/camera; do
+            grep -q "path=\"$p\"" /tmp/merged-manifest.xml \
+              && echo "  OK  $p" || { echo "::error::local_manifests 沒帶進 $p"; exit 1; }
+          done
 
       - name: repo sync
         run: |
@@ -68,21 +106,19 @@ jobs:
           cd "$REPO_DIR"
           repo sync -c --no-tags --no-clone-bundle --optimized-fetch -j"$(nproc)" --fail-fast
 
-      - name: 量體積與缺頁
+      - name: 量體積與剩餘磁碟
         run: |
           set -euo pipefail
           cd "$REPO_DIR"
           du -sh . | sed 's/^/工作區體積：/'
           df -h / | tail -1 | sed 's/^/剩餘磁碟：/'
-          repo manifest | grep -c "<project" | sed 's/^/專案數：/'
 
       - name: lunch lineage_rivena-userdebug
         id: lunch
         run: |
           set -euo pipefail
           cd "$REPO_DIR"
-          # 探測階段先確認 device tree 與 vendor 塊在不在，缺了就直接把原因寫進 summary。
-          test -d device/realme/rivena || { echo "::error::device/realme/rivena 不存在，manifest 沒帶進這支裝置"; exit 1; }
+          test -d device/realme/rivena || { echo "::error::device/realme/rivena 不存在"; exit 1; }
           set +u
           source build/envsetup.sh
           lunch lineage_rivena-userdebug
@@ -104,7 +140,8 @@ jobs:
         run: |
           {
             echo "## LOS 24.0 結構探測"
-            echo "- 分支：${{ inputs.manifest_branch || 'lineage-24.0' }}"
-            echo "- 结论：sync/lunch/m nothing 三步的成敗見上方 job 列表"
+            echo "- 平台 manifest：LineageOS/android @ $MANIFEST_BRANCH（default.xml，--git-lfs）"
+            echo "- 裝置 tree：Capricornus007/local_manifests（rivena 非 LOS 官方支援裝置）"
+            echo "- 結論：sync / lunch / m nothing 三步的成敗見上方 job 列表"
             echo "- 這支 workflow 不出 ROM，只量可行邊界"
           } >> "$GITHUB_STEP_SUMMARY"

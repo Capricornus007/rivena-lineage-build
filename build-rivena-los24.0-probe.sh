@@ -8,7 +8,7 @@
 # LineageOS 自己的 lineage-24.0。
 set -euxo pipefail
 
-repo init --depth=1 --no-repo-verify \
+repo init --depth=1 --no-repo-verify --git-lfs \
   -u https://github.com/LineageOS/android.git -b lineage-24.0 \
   -g default,-mips,-darwin,-notdefault
 
