@@ -10,11 +10,8 @@ on:
     inputs:
       manifest_branch:
         description: LineageOS manifest 分支
-        type: choice
+        type: string
         default: lineage-24.0
-        options:
-          - lineage-24.0
-          - lineage-23.2
   schedule:
     # 每週五 14:00 UTC 跑一次探測（避開使用者環境凌晨 1–5 點的斷網窗）。
     - cron: "0 14 * * 5"
