@@ -63,7 +63,34 @@ jobs:
           sudo apt-get purge -y --auto-remove azure-cli google-cloud-cli \
                      microsoft-edge-stable firefox mysql-server-core || true
           sudo apt-get clean
-          df -h / | tail -1 | sed 's/^/清理後：/'
+          # docker 預載映像（runner 自帶的几個 base image）也吃根分區，清掉。
+          sudo docker system prune -af || true
+          df -h / | tail -1 | sed 's/^/清理後根分區：/'
+
+      - name: 選工作目錄（根分區 vs /mnt 暫存碟）
+        run: |
+          set -euo pipefail
+          # 上一輪（run 41690289419）死在 repo sync 寫爆根分區：job 註解是
+          # System.IO.IOException: No space left on device，日誌那行
+          # "Cannot initialize work tree for proprietary_vendor_realme_rivena" 只是它的表現。
+          # 但 Azure 機型除了根分區還有一塊 ephemeral 暫存碟掛在 /mnt，標準 runner 上
+          # 通常是幾百 GB——上一版我完全沒量它就斷定「裝不下」，這是漏的。
+          # 這步把兩塊盤的可用量都印出來，哪塊夠大就用哪塊當工作目錄。
+          df -h / /mnt 2>/dev/null || df -h /
+          root_free=$(df --output=avail -BM / | tail -1 | tr -dc '0-9')
+          mnt_free=0
+          if [ -d /mnt ]; then
+            sudo mkdir -p /mnt/los && sudo chown "$(id -u):$(id -g)" /mnt/los || true
+            mnt_free=$(df --output=avail -BM /mnt | tail -1 | tr -dc '0-9')
+          fi
+          echo "根分區可用 ${root_free}M；/mnt 暫存碟可用 ${mnt_free}M"
+          if [ "${mnt_free:-0}" -gt "${root_free:-0}" ] && [ "${mnt_free:-0}" -ge 120000 ]; then
+            echo "REPO_DIR=/mnt/los" >> "$GITHUB_ENV"
+            echo "::notice::改用 /mnt 暫存碟當工作目錄（可用 ${mnt_free}M）"
+          else
+            echo "REPO_DIR=$GITHUB_WORKSPACE/los" >> "$GITHUB_ENV"
+            echo "::notice::/mnt 沒有比較大或不足 120G，沿用根分區（可用 ${root_free}M）"
+          fi
 
       - name: 拉平台 manifest（shallow + partial clone）
         run: |

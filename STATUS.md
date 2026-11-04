@@ -67,7 +67,11 @@ workflow：`.github/workflows/los24-structure-probe.yml`（只手動觸發）。
 local_manifests 合併檢查 ✓（8 塊全在）→ **`repo sync` 中途把磁碟寫爆**，job 註解是
 `System.IO.IOException: No space left on device`，連 runner 自己的 `_diag/Worker_*.log` 都寫不進去。
 
-結論：**就算 shallow + partial clone + 清掉影像裡約 25GB，免費 runner 的 ~84GB 根分區仍然裝不下
-LOS 24.0 源码**。這不是調參數能救的——`m nothing` 需要整個平台樹，不能只同步一半。
+磁碟實測（使用者截圖的 `df -h /`，2026-11-04）：`/dev/root` **總量 145G、起手可用 88G**。
+我先前在這裡寫「約 84GB」是沒量就亂編的數字，已改正。清理步驟能再擠出幾十 GB，
+但清理後的確值我這輪沒量到（該輪死在 sync 中，後續步驟沒跑到，不編數字）。
+
+結論：**免費 runner 就算 shallow + partial clone + 清影像，仍然裝不下 LOS 24.0 源碼**。
+這不是調參數能救的——`m nothing` 需要整個平台樹，不能只同步一半。
 所以第一節第 2 點那條「GitHub Actions 不行」從群友說法升級成實測數據；剩下的路只有第三節那兩條
 （本機騰 ≥250GB，或花錢）。
